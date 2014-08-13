@@ -1,7 +1,7 @@
 /*
     Pretty minimal C++ solution to "toy robot" coding exercise:
         accept commands of form
-            PLACE x y d
+            PLACE x,y,d
             MOVE
             LEFT
             RIGHT
@@ -11,42 +11,43 @@
     Reads from a supplied file name or stdin.
     Doesn't accept QUIT
     Doesn't accept lower-case commands.
-    Doesn't accept commas.
-    Does accept leading whitespace (hurrah).
 
-    Not pretty. No classes. No debugging. One robot, represented as a global
-    static struct. Not much meaningful division of labour. This is all barely
-    worthy of being called C++, beyond a little use of STL. Not easily
-    extensible or pluggable. Think yourself lucky I threw in some error
-    handling. Well there are levels below which I will not let myself sink.
+    Not pretty. No debugging. One robot.
+    Not easily extensible or pluggable.
 
     An example of how to throw something together and not solve the problem
-    nicely.
+    really nicely.
 */
 
 #include <cstdio>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 using namespace std;
 
 enum Direction { Invalid, North, East, South, West };
 
-typedef struct robot_s
+class Robot
 {
-    int xpos;
-    int ypos;
-    Direction direction;
-    bool onTable;
-} robot_t;
+    public:
+        Robot();
+        void readAndRunCommands ( FILE * fileStream );
+        void runCommand ( const string & command );
+        void place ( int xpos, int ypos, Direction direction );
+        void move();
+        void left();
+        void right();
+        void report() const;
+    private:
+        int m_xpos;
+        int m_ypos;
+        Direction m_direction;
+        bool m_onTable;
+};
 
-static robot_t theRobot;
-
-static void readAndRunCommands ( FILE * fileStream );
-static void runCommand ( const char * command );
-static void reportPosition();
 static string directionAsString ( const Direction & direction );
 static Direction directionFromString ( const string & str );
 
@@ -54,11 +55,7 @@ extern int main ( int argc, char ** argv )
 {
     try
     {
-        // Initialise robot to a completely invalid state.
-        theRobot.xpos = -1;             // }
-        theRobot.ypos = -1;             // } pointless since not on table yet
-        theRobot.direction = Invalid;   // }
-        theRobot.onTable = false;
+        Robot robot;
 
         // Read from supplied file or else stdin.
         if ( argc > 1 )
@@ -68,12 +65,12 @@ extern int main ( int argc, char ** argv )
             {
                 throw "Failed to read input file";
             }
-            readAndRunCommands ( fileStream );
+            robot.readAndRunCommands ( fileStream );
             fclose ( fileStream );
         }
         else
         {
-            readAndRunCommands ( stdin );
+            robot.readAndRunCommands ( stdin );
         }
     }
     catch ( const string & error )
@@ -94,7 +91,15 @@ extern int main ( int argc, char ** argv )
     return 0;
 }
 
-static void readAndRunCommands ( FILE * fileStream )
+Robot::Robot()
+ : m_xpos ( -1 ),           // }
+   m_ypos ( -1 ),           // } pointless since not on table yet
+   m_direction ( Invalid ), // }
+   m_onTable ( false )
+{
+}
+
+void Robot::readAndRunCommands ( FILE * fileStream )
 {
     // Loop until EOF, running each line in turn.
     for (;;)
@@ -106,169 +111,238 @@ static void readAndRunCommands ( FILE * fileStream )
         {
             break;
         }
-        runCommand ( buffer );
+        try
+        {
+            // Trim trailing newline.
+            buffer[strlen(buffer)-1] = '\0';
+            runCommand ( buffer );
+        }
+        catch ( const exception & error )
+        {
+            cerr << "Caught exception: " << error.what() << endl;
+        }
     }
 }
 
-static void runCommand ( const char * command )
+void raiseInvalidPlaceCommand ( const string & str )
 {
-    // Strip leading whitespace.
-    while ( isspace ( *command ) )
-    {
-        ++command;
-    }
-    string commandStr ( command );
+    stringstream messageStream;
+    messageStream << "Invalid PLACE command: " << str;
+    throw exception ( messageStream.str().c_str() );
+}
 
-    // Trim trailing newline.
-    if ( commandStr.length() > 0 )
-    {
-        commandStr = commandStr.substr ( 0, commandStr.length()-1 );
-    }
+void Robot::runCommand ( const string & command )
+{
 
-    // Look for valid command. PLACE is special because that's the only one
-    // that can affect the robot if it's not already on the table.
-    if ( commandStr.substr ( 0, 6 ) == "PLACE " )
+    istringstream parser ( command );
+    string verb;
+    parser >> verb;
+    if ( verb == "PLACE" )
     {
-        istringstream parser ( commandStr.substr ( 6 ) );
-        int newXpos;
-        int newYpos;
-        string newDirectionToken;
-
-        parser >> newXpos >> newYpos >> newDirectionToken;
+        // Can't use STL parser to separate comma-delimited tokens :-(
+        // Do it by steam instead. Also allow for istringstream having skipped
+        // leading whitespace, so "PLACE" might not be at the beginning of the
+        // command.
+        size_t placePos = command.find ( "PLACE " );
+        size_t placeEndPos = placePos + 6;
+        size_t comma1Pos = command.find ( "," );
+        if ( comma1Pos == string::npos )
+        {
+            raiseInvalidPlaceCommand ( command );
+        }
+        size_t comma2Pos = command.find ( ",", comma1Pos+1 );
+        if ( comma2Pos == string::npos )
+        {
+            raiseInvalidPlaceCommand ( command );
+        }
+        // Example:
+        // command = "    PLACE 12,100,N"
+        // => placePos = 4
+        //    placeEndPos = 10
+        // => comma1Pos = 12
+        //    comma2Pos = 16
+        //    x = [10..11]
+        //    y = [13..15]
+        //    d = [17...]
+        // 6 = strlen ( "PLACE " )
+        int newXpos = atoi ( command.substr ( placeEndPos, comma1Pos-placeEndPos ).c_str() );
+        int newYpos = atoi ( command.substr ( comma1Pos+1, comma2Pos-comma1Pos-1 ).c_str() );
+        string newDirectionToken ( command.substr ( comma2Pos+1 ) );
         Direction newDirection = directionFromString ( newDirectionToken );
         if ( newDirection == Invalid )
         {
-            cerr << "Invalid direction" << endl;
+            stringstream messageStream;
+            messageStream << "Invalid direction: " << newDirectionToken;
+            throw exception ( messageStream.str().c_str() );
         }
-        else if ( newXpos >= 0 && newXpos < 5 && newYpos >= 0 && newYpos < 5 )
-        {
-            theRobot.xpos = newXpos;
-            theRobot.ypos = newYpos;
-            theRobot.direction = newDirection;
-            theRobot.onTable = true;
-            reportPosition();
-        }
-        else
-        {
-            cerr << "Ignoring invalid PLACE co-ordinates" << endl;
-        }
+        place ( newXpos, newYpos, newDirection );
     }
-    else if ( ! theRobot.onTable )
+    else if ( verb == "MOVE" )
     {
-        cout << "Robot is not on the table" << endl;
+        move();
+    }
+    else if ( verb == "LEFT" )
+    {
+        left();
+    }
+    else if ( verb == "RIGHT" )
+    {
+        right();
+    }
+    else if ( verb == "REPORT" )
+    {
+        report();
     }
     else
     {
-        if ( commandStr == "MOVE" )
-        {
-            bool validMove = true;
-            switch ( theRobot.direction )
-            {
-                case North:
-                {
-                    if ( theRobot.ypos < 4 )
-                    {
-                        ++theRobot.ypos;
-                    }
-                    else
-                    {
-                        validMove = false;
-                    }
-                    break;
-                }
-                case West:
-                {
-                    if ( theRobot.xpos > 0 )
-                    {
-                        --theRobot.xpos;
-                    }
-                    else
-                    {
-                        validMove = false;
-                    }
-                    break;
-                }
-                case South:
-                {
-                    if ( theRobot.ypos > 0 )
-                    {
-                        --theRobot.ypos;
-                    }
-                    else
-                    {
-                        validMove = false;
-                    }
-                    break;
-                }
-                case East:
-                {
-                    if ( theRobot.xpos < 4 )
-                    {
-                        ++theRobot.xpos;
-                    }
-                    else
-                    {
-                        validMove = false;
-                    }
-                    break;
-                }
-                case Invalid:
-                {
-                    cerr << "Attempt to move robot without placing it first" << endl;
-                    break;
-                }
-                default:    // impossible, it's an enum
-                {
-                    throw "impossible enum value";
-                    break;
-                }
-            }
-            if ( ! validMove )
-            {
-                cerr << "Ignoring attempt to move robot off table" << endl;
-            }
-
-            reportPosition();
-        }
-        else if ( commandStr == "LEFT" )
-        {
-            theRobot.direction = ( theRobot.direction == North ) ? West :
-                                 ( theRobot.direction == West )  ? South :
-                                 ( theRobot.direction == South ) ? East :
-                                 ( theRobot.direction == East )  ? North :
-                                                                   Invalid;
-            reportPosition();
-        }
-        else if ( commandStr == "RIGHT" )
-        {
-            theRobot.direction = ( theRobot.direction == North ) ? East :
-                                 ( theRobot.direction == East )  ? South :
-                                 ( theRobot.direction == South ) ? West :
-                                 ( theRobot.direction == West )  ? North :
-                                                                   Invalid;
-            reportPosition();
-        }
-        else if ( commandStr == "REPORT" )
-        {
-            reportPosition();
-        }
-        else
-        {
-            cerr << "Ignoring invalid command " << endl;
-        }
+        stringstream messageStream;
+        messageStream << "Invalid command: " << command;
+        throw exception ( messageStream.str().c_str() );
     }
 }
 
-static void reportPosition()
+void Robot::place ( int newXpos, int newYpos, Direction newDirection )
 {
-    if ( ! theRobot.onTable )
+    if ( newXpos >= 0 && newXpos < 5 && newYpos >= 0 && newYpos < 5 )
+    {
+        m_xpos = newXpos;
+        m_ypos = newYpos;
+        m_direction = newDirection;
+        m_onTable = true;
+        report();
+    }
+    else
+    {
+        stringstream messageStream;
+        messageStream << "Invalid PLACE co-ordinates: "
+                      << newXpos << " " << newYpos;
+        throw exception ( messageStream.str().c_str() );
+    }
+}
+
+void Robot::move()
+{
+    if ( ! m_onTable )
     {
         cout << "Robot is not on the table" << endl;
     }
     else
     {
-        cout << "Robot is at x = " << theRobot.xpos << ", y = " << theRobot.ypos
-             << ", facing " << directionAsString(theRobot.direction) << endl;
+        bool validMove = true;
+        switch ( m_direction )
+        {
+            case North:
+            {
+                if ( m_ypos < 4 )
+                {
+                    ++m_ypos;
+                }
+                else
+                {
+                    validMove = false;
+                }
+                break;
+            }
+            case West:
+            {
+                if ( m_xpos > 0 )
+                {
+                    --m_xpos;
+                }
+                else
+                {
+                    validMove = false;
+                }
+                break;
+            }
+            case South:
+            {
+                if ( m_ypos > 0 )
+                {
+                    --m_ypos;
+                }
+                else
+                {
+                    validMove = false;
+                }
+                break;
+            }
+            case East:
+            {
+                if ( m_xpos < 4 )
+                {
+                    ++m_xpos;
+                }
+                else
+                {
+                    validMove = false;
+                }
+                break;
+            }
+            case Invalid:
+            {
+                cerr << "Attempt to move robot without placing it first" << endl;
+                break;
+            }
+            default:    // impossible, it's an enum
+            {
+                throw "impossible enum value";
+                break;
+            }
+        }
+        if ( ! validMove )
+        {
+            cerr << "Ignoring attempt to move robot off table" << endl;
+        }
+
+        report();
+    }
+}
+
+void Robot::left()
+{
+    if ( ! m_onTable )
+    {
+        cout << "Robot is not on the table" << endl;
+    }
+    else
+    {
+        m_direction = ( m_direction == North ) ? West :
+                      ( m_direction == West )  ? South :
+                      ( m_direction == South ) ? East :
+                      ( m_direction == East )  ? North :
+                                                 Invalid;
+        report();
+    }
+}
+
+void Robot::right()
+{
+    if ( ! m_onTable )
+    {
+        cout << "Robot is not on the table" << endl;
+    }
+    else
+    {
+        m_direction = ( m_direction == North ) ? East :
+                      ( m_direction == East )  ? South :
+                      ( m_direction == South ) ? West :
+                      ( m_direction == West )  ? North :
+                                                 Invalid;
+        report();
+    }
+}
+
+void Robot::report() const
+{
+    if ( ! m_onTable )
+    {
+        cout << "Robot is not on the table" << endl;
+    }
+    else
+    {
+        cout << "Robot is at x = " << m_xpos << ", y = " << m_ypos
+             << ", facing " << directionAsString(m_direction) << endl;
     }
 }
 
@@ -283,6 +357,7 @@ static string directionAsString ( const Direction & direction )
 
 static Direction directionFromString ( const string & str )
 {
+    // Aren't we generous :-)
     return ( str == "N" || str == "NORTH" ) ? North :
            ( str == "W" || str == "WEST" )  ? West :
            ( str == "S" || str == "SOUTH" ) ? South :
