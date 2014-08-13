@@ -3,6 +3,19 @@ bad-robot
 
 Poor solution to "toy robot" coding exercise
 
+Building
+--------
+
+compile, link. Nothing fancy.
+
+Testing
+-------
+
+run_tests (currently just a Windows script)
+
+Synopsis
+--------
+
     Pretty minimal C++ solution to "toy robot" coding exercise:
         accept commands of form
             PLACE x,y,d

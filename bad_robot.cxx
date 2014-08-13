@@ -140,17 +140,17 @@ void Robot::runCommand ( const string & command )
     if ( verb == "PLACE" )
     {
         // Can't use STL parser to separate comma-delimited tokens :-(
-        // Do it by steam instead. Also allow for istringstream having skipped
-        // leading whitespace, so "PLACE" might not be at the beginning of the
-        // command.
+        // Do it by steam instead.
+        // Also allow for istringstream having skipped leading whitespace, so
+        // "PLACE" might not be at the beginning of the command.
         size_t placePos = command.find ( "PLACE " );
         size_t placeEndPos = placePos + 6;
-        size_t comma1Pos = command.find ( "," );
+        size_t comma1Pos = command.find_first_of ( ",", placeEndPos+1 );
         if ( comma1Pos == string::npos )
         {
             raiseInvalidPlaceCommand ( command );
         }
-        size_t comma2Pos = command.find ( ",", comma1Pos+1 );
+        size_t comma2Pos = command.find_first_of ( ",", comma1Pos+1 );
         if ( comma2Pos == string::npos )
         {
             raiseInvalidPlaceCommand ( command );
